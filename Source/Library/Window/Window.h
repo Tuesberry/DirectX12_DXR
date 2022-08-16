@@ -12,9 +12,10 @@ namespace library
 {
 	class Window
 	{
-	public:
+	protected:
 		static LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
-		
+	
+	public:
 		Window();
 		Window(const Window& rhs) = delete;
 		Window(Window&& rhs) = delete;

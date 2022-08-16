@@ -3,21 +3,25 @@
 namespace library
 {
 	Renderer::Renderer()
-		:m_Device(nullptr)
-		,m_CommandQueue(nullptr)
-		,m_SwapChain(nullptr)
-		,m_BackBuffers{}
-		,m_CommandList(nullptr)
-		,m_CommandAllocator{}
-		,m_RTVDescriptorHeap(nullptr)
-		,m_Fence(nullptr)
-		,m_Viewport{0, 0, 0.0f, 0.0f, 0.0f, 1.0f}
-		,m_ScissorRect{}
-		,m_RTVHandle{}
-		,m_RTVDescriptorSize(0)
-		,m_CurrentBackBufferIndex(0)
-		,m_FenceValue(0)
-		,m_FenceEvent(INVALID_HANDLE_VALUE)
+		:m_device(nullptr)
+		,m_commandQueue(nullptr)
+		,m_swapChain(nullptr)
+		,m_backBuffers{}
+		,m_commandList(nullptr)
+		,m_commandAllocator{}
+		,m_rtvDescriptorHeap(nullptr)
+		,m_fence(nullptr)
+		,m_rootSignature(nullptr)
+		,m_pipelineState(nullptr)
+		,m_vertexBuffer(nullptr)
+		,m_vertexBufferView{}
+		,m_viewport{0, 0, 0.0f, 0.0f, 0.0f, 1.0f}
+		,m_scissorRect{}
+		,m_rtvHandle{}
+		,m_rtvDescriptorSize(0)
+		,m_currentBackBufferIndex(0)
+		,m_fenceValue(0)
+		,m_fenceEvent(INVALID_HANDLE_VALUE)
 	{
 	}
 
@@ -31,11 +35,11 @@ namespace library
 		UINT uHeight = static_cast<UINT>(rc.bottom - rc.top);
 
 		// set viewport
-		m_Viewport.Width = static_cast<float>(uWidth);
-		m_Viewport.Height = static_cast<float>(uHeight);
+		m_viewport.Width = static_cast<float>(uWidth);
+		m_viewport.Height = static_cast<float>(uHeight);
 
 		// set rect
-		m_ScissorRect = CD3DX12_RECT(0, 0, uWidth, uHeight);
+		m_scissorRect = CD3DX12_RECT(0, 0, uWidth, uHeight);
 
 		// 1. create the device
 		// create dxgiFactory
@@ -45,8 +49,9 @@ namespace library
 		{
 			return hr;
 		}
+
 		// createDevice
-		hr = D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(m_Device.GetAddressOf()));
+		hr = D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(m_device.GetAddressOf()));
 		if (FAILED(hr))
 		{
 			return hr;
@@ -57,7 +62,7 @@ namespace library
 			.Type = D3D12_COMMAND_LIST_TYPE_DIRECT,
 			.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE
 		};
-		hr = m_Device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(m_CommandQueue.GetAddressOf()));
+		hr = m_device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(m_commandQueue.GetAddressOf()));
 		if (FAILED(hr))
 		{
 			return hr;
@@ -81,79 +86,214 @@ namespace library
 				.Quality = 0
 			},
 			.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT,
-			.BufferCount = g_NumFrameBuffers,
+			.BufferCount = g_numFrameBuffers,
 			.OutputWindow = hWnd,
 			.Windowed = true,
 			.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD,
 			.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH
 		};
 
-		hr = dxgiFactory->CreateSwapChain(m_CommandQueue.Get(), &swapChainDesc, m_SwapChain.GetAddressOf());
+		ComPtr<IDXGISwapChain> swapChain(nullptr);
+		hr = dxgiFactory->CreateSwapChain(m_commandQueue.Get(), &swapChainDesc, swapChain.GetAddressOf());
 		if (FAILED(hr))
 		{
 			return hr;
 		}
+
+		hr = swapChain.As(&m_swapChain);
+		if (FAILED(hr))
+		{
+			return hr;
+		}
+		m_currentBackBufferIndex = m_swapChain->GetCurrentBackBufferIndex();
 
 		// 4. Create the Descriptor Heap
 		// rtv descriptor heap
 		D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc = {
 			.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV,
-			.NumDescriptors = g_NumFrameBuffers,
+			.NumDescriptors = g_numFrameBuffers,
 			.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE,
 			.NodeMask = 0
 		};
-		hr = m_Device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(m_RTVDescriptorHeap.GetAddressOf()));
+		hr = m_device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(m_rtvDescriptorHeap.GetAddressOf()));
 		if (FAILED(hr))
 		{
 			return hr;
 		}
 		// get the size of a descriptor in this heap
-		m_RTVDescriptorSize = m_Device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+		m_rtvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+
+		// 5. Create frame resources
 		// get a handle to the first descriptor in the descriptor heap
-		CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHeapBegin(m_RTVDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+		CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
 		// create a RTV for each buffer
-		for (UINT i = 0; i < g_NumFrameBuffers; ++i)
+		for (UINT i = 0; i < g_numFrameBuffers; ++i)
 		{
-			hr = m_SwapChain->GetBuffer(i, IID_PPV_ARGS(m_BackBuffers[i].GetAddressOf()));
+			hr = m_swapChain->GetBuffer(i, IID_PPV_ARGS(m_backBuffers[i].GetAddressOf()));
 			if (FAILED(hr))
 			{
 				return hr;
 			}
-			m_RTVHandle[i] = CD3DX12_CPU_DESCRIPTOR_HANDLE(rtvHeapBegin, i * m_RTVDescriptorSize);
-			m_Device->CreateRenderTargetView(m_BackBuffers[i].Get(), nullptr, m_RTVHandle[i]);
+			m_device->CreateRenderTargetView(m_backBuffers[i].Get(), nullptr, rtvHandle);
+			rtvHandle.Offset(1, m_rtvDescriptorSize);
 		}
 
-		// 5. Create the Command Allocator
-		hr = m_Device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(m_CommandAllocator.GetAddressOf()));
+		// 6. Create the Command Allocator
+		hr = m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(m_commandAllocator.GetAddressOf()));
 		if (FAILED(hr))
 		{
 			return hr;
 		}
 
-		// 6. Create a Command list
-		hr = m_Device->CreateCommandList(
+		// 7. Create an empty root signature
+		CD3DX12_ROOT_SIGNATURE_DESC rootSignatureDesc;
+		rootSignatureDesc.Init(0, nullptr, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+		ComPtr<ID3DBlob> signature;
+		ComPtr<ID3DBlob> error;
+		hr = D3D12SerializeRootSignature(&rootSignatureDesc, D3D_ROOT_SIGNATURE_VERSION_1, signature.GetAddressOf(), error.GetAddressOf());
+		if (FAILED(hr))
+		{
+			return hr;
+		}
+		hr = m_device->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(m_rootSignature.GetAddressOf()));
+		if (FAILED(hr))
+		{
+			return hr;
+		}
+
+		// 8. Create the pipeline state, which includes compiling and loading shaders
+		// d3dcompilefromfile
+		ComPtr<ID3DBlob> vertexShader;
+		ComPtr<ID3DBlob> pixelShader;
+		hr = D3DCompileFromFile(L"../Library/Shaders/VertexShader.hlsl", nullptr, nullptr, "VSMain", "vs_5_0", 0, 0, vertexShader.GetAddressOf(), nullptr);
+		if (FAILED(hr))
+		{
+			return hr;
+		}
+		hr = D3DCompileFromFile(L"../Library/Shaders/PixelShader.hlsl", nullptr, nullptr, "PSMain", "ps_5_0", 0, 0, pixelShader.GetAddressOf(), nullptr);
+		if (FAILED(hr))
+		{
+			return hr;
+		}
+
+		// define the vertex input layout
+		D3D12_INPUT_ELEMENT_DESC inputElementDescs[] =
+		{
+			{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+			{ "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
+		};
+
+		// describe and create the graphics pipeline state object
+		D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {
+			.pRootSignature = m_rootSignature.Get(),
+			.VS = CD3DX12_SHADER_BYTECODE(vertexShader.Get()),
+			.PS = CD3DX12_SHADER_BYTECODE(pixelShader.Get()),
+			.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT),
+			.SampleMask = UINT_MAX,
+			.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT),
+			.DepthStencilState = {
+				.DepthEnable = FALSE,
+				.StencilEnable = FALSE
+			},
+			.InputLayout = {
+				inputElementDescs, _countof(inputElementDescs)
+			},
+			.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE,
+			.NumRenderTargets = 1,
+			.RTVFormats = {DXGI_FORMAT_R8G8B8A8_UNORM, },
+			.SampleDesc = {
+				.Count = 1,
+			},
+		};
+		hr = m_device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(m_pipelineState.GetAddressOf()));
+		if (FAILED(hr))
+		{
+			return hr;
+		}
+
+		// 9. Create the Command list
+		hr = m_device->CreateCommandList(
 			0,
 			D3D12_COMMAND_LIST_TYPE_DIRECT,
-			m_CommandAllocator.Get(),
-			nullptr,
-			IID_PPV_ARGS(m_CommandList.GetAddressOf())
+			m_commandAllocator.Get(),
+			m_pipelineState.Get(),
+			IID_PPV_ARGS(m_commandList.GetAddressOf())
 		);
 		if (FAILED(hr))
 		{
 			return hr;
 		}
 		// close command list
-		m_CommandList->Close();
+		m_commandList->Close();
 
-		// 7. Create the fences
-		hr = m_Device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(m_Fence.GetAddressOf()));
+		// 10. create the vertex buffer
+		float aspect_ratio = static_cast<float>(uWidth) / static_cast<float>(uHeight);
+		Vertex triangleVertices[] = {
+				{ { 0.0f, 0.25f * aspect_ratio, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
+				{ { 0.25f, -0.25f * aspect_ratio, 0.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
+				{ { -0.25f, -0.25f * aspect_ratio, 0.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } },
+		};
+
+		// create a resource heap
+		auto heapProperties = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
+		auto resourceDesc = CD3DX12_RESOURCE_DESC::Buffer(sizeof(triangleVertices));
+		hr = m_device->CreateCommittedResource(
+			&heapProperties,
+			D3D12_HEAP_FLAG_NONE,
+			&resourceDesc,
+			D3D12_RESOURCE_STATE_GENERIC_READ,
+			nullptr,
+			IID_PPV_ARGS(m_vertexBuffer.GetAddressOf())
+		);
 		if (FAILED(hr))
 		{
 			return hr;
 		}
-		m_FenceEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
 
-		return S_OK;
+		// copy the triangle data to the vertex buffer
+		UINT8* pVertexDataBegin;
+		CD3DX12_RANGE readRange(0, 0);
+		hr = m_vertexBuffer->Map(0, &readRange, reinterpret_cast<void**>(&pVertexDataBegin));
+		if (FAILED(hr))
+		{
+			return hr;
+		}
+		memcpy(pVertexDataBegin, triangleVertices, sizeof(triangleVertices));
+		m_vertexBuffer->Unmap(0, nullptr);
+
+		// initialize the vertex buffer view
+		m_vertexBufferView.BufferLocation = m_vertexBuffer->GetGPUVirtualAddress();
+		m_vertexBufferView.StrideInBytes = sizeof(Vertex);
+		m_vertexBufferView.SizeInBytes = sizeof(triangleVertices);
+
+		// 11. create synchronization object
+		// create the fence
+		hr = m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(m_fence.GetAddressOf()));
+		if (FAILED(hr))
+		{
+			return hr;
+		}
+		m_fenceEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+
+		// wait for the command list to execute
+		WaitForPreviousFrame();
+	}
+
+	void Renderer::WaitForPreviousFrame()
+	{
+		// Signal and increment the fence value.
+		const UINT64 fence = m_fenceValue;
+		m_commandQueue->Signal(m_fence.Get(), fence);
+		m_fenceValue++;
+
+		// Wait until the previous frame is finished.
+		if (m_fence->GetCompletedValue() < fence)
+		{
+			m_fence->SetEventOnCompletion(fence, m_fenceEvent);
+			WaitForSingleObject(m_fenceEvent, INFINITE);
+		}
+
+		m_currentBackBufferIndex = m_swapChain->GetCurrentBackBufferIndex();
 	}
 
 	void Renderer::Update()
@@ -163,42 +303,44 @@ namespace library
 
 	void Renderer::Render()
 	{
-		m_CommandAllocator->Reset();
-		m_CommandList->Reset(m_CommandAllocator.Get(), nullptr);
+		m_commandAllocator->Reset();
+		m_commandList->Reset(m_commandAllocator.Get(), m_pipelineState.Get());
 
 		// Clear the render target
+		// set necessary state
+		m_commandList->RSSetViewports(1, &m_viewport);
+		m_commandList->RSSetScissorRects(1, &m_scissorRect);
+		m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
+
+		// indicate that the back buffer will be used as a render target
 		CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
-			m_BackBuffers[m_CurrentBackBufferIndex].Get(), 
+			m_backBuffers[m_currentBackBufferIndex].Get(),
 			D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
-		m_CommandList->ResourceBarrier(1, &barrier);
-		
-		m_CommandList->RSSetViewports(1, &m_Viewport);
-		m_CommandList->RSSetScissorRects(1, &m_ScissorRect);
+		m_commandList->ResourceBarrier(1, &barrier);
 
-		CD3DX12_CPU_DESCRIPTOR_HANDLE backBufferView(m_RTVDescriptorHeap->GetCPUDescriptorHandleForHeapStart(), m_CurrentBackBufferIndex, m_RTVDescriptorSize);
-		m_CommandList->ClearRenderTargetView(backBufferView, Colors::MidnightBlue, 0, nullptr);
-		m_CommandList->OMSetRenderTargets(1, &backBufferView, FALSE, nullptr);
+		CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(), m_currentBackBufferIndex, m_rtvDescriptorSize);
+		m_commandList->OMSetRenderTargets(1, &rtvHandle, FALSE, nullptr);
 
-		// present
+		// record commands
+		m_commandList->ClearRenderTargetView(rtvHandle, Colors::MidnightBlue, 0, nullptr);
+		m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+		m_commandList->IASetVertexBuffers(0, 1, &m_vertexBufferView);
+		m_commandList->DrawInstanced(3, 1, 0, 0);
+
+		// indicate that the back buffer will now be used to present
 		CD3DX12_RESOURCE_BARRIER barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(
-			m_BackBuffers[m_CurrentBackBufferIndex].Get(),
+			m_backBuffers[m_currentBackBufferIndex].Get(),
 			D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
-		m_CommandList->ResourceBarrier(1, &barrier2);
-		m_CommandList->Close();
+		m_commandList->ResourceBarrier(1, &barrier2);
+		m_commandList->Close();
 
-		ID3D12CommandList* const commandListArr[] = { m_CommandList.Get() };
-		m_CommandQueue->ExecuteCommandLists(_countof(commandListArr), commandListArr);
+		// execute the command list
+		ID3D12CommandList* commandListArr[] = { m_commandList.Get() };
+		m_commandQueue->ExecuteCommandLists(_countof(commandListArr), commandListArr);
 		
-		m_SwapChain->Present(0, 0);
+		// present the frame
+		m_swapChain->Present(1, 0);
 		
-		m_FenceValue++;
-		m_CommandQueue->Signal(m_Fence.Get(), m_FenceValue);
-		if (m_Fence->GetCompletedValue() < m_FenceValue)
-		{
-			m_Fence->SetEventOnCompletion(m_FenceValue, m_FenceEvent);
-			WaitForSingleObject(m_FenceEvent, INFINITE);
-		}
-
-		m_CurrentBackBufferIndex = (m_CurrentBackBufferIndex + 1) % g_NumFrameBuffers;
+		WaitForPreviousFrame();
 	}
 }

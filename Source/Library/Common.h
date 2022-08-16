@@ -44,6 +44,7 @@ using namespace Microsoft::WRL;
 #include <exception>
 #include <shellapi.h> // for CommandLineToArgvW
 
+// Resource
 #include "resource.h"
 
 #pragma comment(lib, "d3d12")
@@ -53,10 +54,17 @@ using namespace Microsoft::WRL;
 
 using namespace DirectX;
 
+// window title
 constexpr LPCWSTR PSZ_TITLE = L"D3D12_DXR";
 
 // The number of swap chain back buffers
-const uint8_t g_NumFrameBuffers = 3;
+const uint8_t g_numFrameBuffers = 2;
 
-const uint32_t g_ClientWidth = 1280;
-const uint32_t g_ClientHeight = 720;
+namespace library
+{
+	struct Vertex
+	{
+		XMFLOAT3 position;
+		XMFLOAT4 color;
+	};
+}
