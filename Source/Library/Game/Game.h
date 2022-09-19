@@ -3,7 +3,7 @@
 #include "Common.h"
 
 #include "Renderer/Renderer.h"
-#include "Window/Window.h"
+#include "Window/MainWindow.h"
 
 namespace library
 {
@@ -25,7 +25,7 @@ namespace library
         //std::unique_ptr<Renderer>& GetRenderer();
     private:
         PCWSTR m_pszGameName;
-        std::unique_ptr<Window> m_Window;
+        std::unique_ptr<MainWindow> m_Window;
         std::unique_ptr<Renderer> m_renderer;
 	};
 }

@@ -34,13 +34,40 @@
     <Filter Include="Source Files\Shaders">
       <UniqueIdentifier>{7997890d-1ea0-46db-929f-5b6a7122e5c9}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Header Files\Renderer\RootSignature">
+      <UniqueIdentifier>{a9237751-1d3e-4faf-a37f-af6496d22ef7}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Renderer\RootSignature">
+      <UniqueIdentifier>{97dcd38a-0fab-43fa-878a-202f4d63e9ea}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\Renderer\DeviceResource">
+      <UniqueIdentifier>{426ff783-ee91-49f8-ac1f-bfcb26aebfcd}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Renderer\DeviceResource">
+      <UniqueIdentifier>{813dc5d4-ed96-4919-a871-6fd3df9156ea}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\Camera">
+      <UniqueIdentifier>{07559a04-040e-4dba-a9ab-b20fe7d3e8ee}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Camera">
+      <UniqueIdentifier>{e0713ed7-9e2c-49f2-a727-04a40594da62}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\Renderer\RayTracingResource">
+      <UniqueIdentifier>{812c5516-5e56-4bda-accc-a85ea3bf1118}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Renderer\RayTracingResource">
+      <UniqueIdentifier>{fc3d234a-fc95-4cd8-b0c4-87667ca48e7d}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\GameObject">
+      <UniqueIdentifier>{f0ea93c8-678c-47d1-bdc5-7c53a532279a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\GameObject">
+      <UniqueIdentifier>{ed64fe34-d07d-4bc6-9d8b-af92144ed424}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Game\Game.h">
       <Filter>Header Files\Game</Filter>
-    </ClInclude>
-    <ClInclude Include="Window\Window.h">
-      <Filter>Header Files\Window</Filter>
     </ClInclude>
     <ClInclude Include="Renderer\Renderer.h">
       <Filter>Header Files\Renderer</Filter>
@@ -54,6 +81,57 @@
     <ClInclude Include="resource.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="Renderer\RootSignature\GlobalRootSignature.h">
+      <Filter>Header Files\Renderer\RootSignature</Filter>
+    </ClInclude>
+    <ClInclude Include="Renderer\RootSignature\LocalRootSignature.h">
+      <Filter>Header Files\Renderer\RootSignature</Filter>
+    </ClInclude>
+    <ClInclude Include="Renderer\RootSignature\RootSignature.h">
+      <Filter>Header Files\Renderer\RootSignature</Filter>
+    </ClInclude>
+    <ClInclude Include="Window\BaseWindow.h">
+      <Filter>Header Files\Window</Filter>
+    </ClInclude>
+    <ClInclude Include="Window\MainWindow.h">
+      <Filter>Header Files\Window</Filter>
+    </ClInclude>
+    <ClInclude Include="Camera\Camera.h">
+      <Filter>Header Files\Camera</Filter>
+    </ClInclude>
+    <ClInclude Include="Renderer\DeviceResource\Device.h">
+      <Filter>Header Files\Renderer\DeviceResource</Filter>
+    </ClInclude>
+    <ClInclude Include="Renderer\DeviceResource\CommandQueue.h">
+      <Filter>Header Files\Renderer\DeviceResource</Filter>
+    </ClInclude>
+    <ClInclude Include="Renderer\DeviceResource\SwapChain.h">
+      <Filter>Header Files\Renderer\DeviceResource</Filter>
+    </ClInclude>
+    <ClInclude Include="Renderer\DeviceResource\DepthStencilBuffer.h">
+      <Filter>Header Files\Renderer\DeviceResource</Filter>
+    </ClInclude>
+    <ClInclude Include="Renderer\DeviceResource\ConstantBuffer.h">
+      <Filter>Header Files\Renderer\DeviceResource</Filter>
+    </ClInclude>
+    <ClInclude Include="Renderer\RayTracingResource\ShaderRecord.h">
+      <Filter>Header Files\Renderer\RayTracingResource</Filter>
+    </ClInclude>
+    <ClInclude Include="Renderer\RayTracingResource\ShaderTable.h">
+      <Filter>Header Files\Renderer\RayTracingResource</Filter>
+    </ClInclude>
+    <ClInclude Include="Renderer\RayTracingResource\AccelerationStructure.h">
+      <Filter>Header Files\Renderer\RayTracingResource</Filter>
+    </ClInclude>
+    <ClInclude Include="Renderer\Renderable.h">
+      <Filter>Header Files\Renderer</Filter>
+    </ClInclude>
+    <ClInclude Include="Renderer\DeviceResource\DescriptorHeap.h">
+      <Filter>Header Files\Renderer\DeviceResource</Filter>
+    </ClInclude>
+    <ClInclude Include="GameObject\Cube.h">
+      <Filter>Header Files\GameObject</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Game\Game.cpp">
@@ -62,8 +140,44 @@
     <ClCompile Include="Renderer\Renderer.cpp">
       <Filter>Source Files\Renderer</Filter>
     </ClCompile>
-    <ClCompile Include="Window\Window.cpp">
+    <ClCompile Include="Renderer\RootSignature\GlobalRootSignature.cpp">
+      <Filter>Source Files\Renderer\RootSignature</Filter>
+    </ClCompile>
+    <ClCompile Include="Renderer\RootSignature\LocalRootSignature.cpp">
+      <Filter>Source Files\Renderer\RootSignature</Filter>
+    </ClCompile>
+    <ClCompile Include="Renderer\RootSignature\RootSignature.cpp">
+      <Filter>Source Files\Renderer\RootSignature</Filter>
+    </ClCompile>
+    <ClCompile Include="Window\MainWindow.cpp">
       <Filter>Source Files\Window</Filter>
+    </ClCompile>
+    <ClCompile Include="Renderer\DeviceResource\Device.cpp">
+      <Filter>Source Files\Renderer\DeviceResource</Filter>
+    </ClCompile>
+    <ClCompile Include="Renderer\DeviceResource\CommandQueue.cpp">
+      <Filter>Source Files\Renderer\DeviceResource</Filter>
+    </ClCompile>
+    <ClCompile Include="Renderer\DeviceResource\SwapChain.cpp">
+      <Filter>Source Files\Renderer\DeviceResource</Filter>
+    </ClCompile>
+    <ClCompile Include="Renderer\DeviceResource\DepthStencilBuffer.cpp">
+      <Filter>Source Files\Renderer\DeviceResource</Filter>
+    </ClCompile>
+    <ClCompile Include="Renderer\DeviceResource\ConstantBuffer.cpp">
+      <Filter>Source Files\Renderer\DeviceResource</Filter>
+    </ClCompile>
+    <ClCompile Include="Renderer\RayTracingResource\AccelerationStructure.cpp">
+      <Filter>Source Files\Renderer\RayTracingResource</Filter>
+    </ClCompile>
+    <ClCompile Include="Renderer\Renderable.cpp">
+      <Filter>Source Files\Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="Renderer\DeviceResource\DescriptorHeap.cpp">
+      <Filter>Source Files\Renderer\DeviceResource</Filter>
+    </ClCompile>
+    <ClCompile Include="GameObject\Cube.cpp">
+      <Filter>Source Files\GameObject</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -77,10 +191,7 @@
     </Image>
   </ItemGroup>
   <ItemGroup>
-    <FxCompile Include="Shaders\PixelShader.hlsl">
-      <Filter>Source Files\Shaders</Filter>
-    </FxCompile>
-    <FxCompile Include="Shaders\VertexShader.hlsl">
+    <FxCompile Include="Shaders\Raytracing.hlsl">
       <Filter>Source Files\Shaders</Filter>
     </FxCompile>
   </ItemGroup>

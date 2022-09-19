@@ -36,13 +36,20 @@ using namespace Microsoft::WRL;
 #include <DirectXMath.h>
 #include <DirectXColors.h>
 
-// STL Headers
-#include <algorithm>
-#include <cassert>
-#include <chrono>
+// C RunTime Header Files
+#include <stdlib.h>
+#include <sstream>
+#include <iomanip>
+
+#include <list>
+#include <string>
+#include <shellapi.h>
 #include <memory>
-#include <exception>
-#include <shellapi.h> // for CommandLineToArgvW
+#include <unordered_map>
+#include <vector>
+#include <atlbase.h>
+#include <assert.h>
+#include <rpcndr.h>
 
 // Resource
 #include "resource.h"
@@ -53,18 +60,67 @@ using namespace Microsoft::WRL;
 #pragma comment(lib, "d3dcompiler")
 
 using namespace DirectX;
+using namespace std;
 
 // window title
 constexpr LPCWSTR PSZ_TITLE = L"D3D12_DXR";
 
 // The number of swap chain back buffers
-const uint8_t g_numFrameBuffers = 2;
+const static size_t MAX_BACK_BUFFER_COUNT = 3;
 
 namespace library
 {
+    /*S+S+++S+++S+++S+++S+++S+++S+++S+++S+++S+++S+++S+++S+++S+++S+++S+++S
+    Struct:   DirectionsInput
+    Summary:  Data structure that stores keyboard movement data
+    S---S---S---S---S---S---S---S---S---S---S---S---S---S---S---S---S-S*/
+    struct DirectionsInput
+    {
+        BOOL bFront;
+        BOOL bLeft;
+        BOOL bBack;
+        BOOL bRight;
+        BOOL bUp;
+        BOOL bDown;
+    };
+
+    /*S+S+++S+++S+++S+++S+++S+++S+++S+++S+++S+++S+++S+++S+++S+++S+++S+++S
+        Struct:   MouseRelativeMovement
+        Summary:  Data structure that stores mouse relative movement data
+    S---S---S---S---S---S---S---S---S---S---S---S---S---S---S---S---S-S*/
+    struct MouseRelativeMovement
+    {
+        LONG X;
+        LONG Y;
+    };
+
 	struct Vertex
 	{
-		XMFLOAT3 position;
-		XMFLOAT4 color;
+        XMFLOAT3 position;
+        XMFLOAT3 normal;
 	};
+
+	typedef UINT16 Index;
+
+	struct Viewport
+	{
+		float left;
+		float top;
+		float right;
+		float bottom;
+	};
+
+    struct SceneConstantBuffer
+    {
+        XMMATRIX projectionToWorld;
+        XMVECTOR cameraPosition;
+        XMVECTOR lightPosition;
+        XMVECTOR lightAmbientColor;
+        XMVECTOR lightDiffuseColor;
+    };
+
+    struct CubeConstantBuffer
+    {
+        XMFLOAT4 albedo;
+    };
 }

@@ -1,346 +1,371 @@
 #include "Renderer.h"
+#include "CompiledShaders/Raytracing.hlsl.h"
 
 namespace library
 {
-	Renderer::Renderer()
-		:m_device(nullptr)
-		,m_commandQueue(nullptr)
-		,m_swapChain(nullptr)
-		,m_backBuffers{}
-		,m_commandList(nullptr)
-		,m_commandAllocator{}
-		,m_rtvDescriptorHeap(nullptr)
-		,m_fence(nullptr)
-		,m_rootSignature(nullptr)
-		,m_pipelineState(nullptr)
-		,m_vertexBuffer(nullptr)
-		,m_vertexBufferView{}
-		,m_viewport{0, 0, 0.0f, 0.0f, 0.0f, 1.0f}
-		,m_scissorRect{}
-		,m_rtvHandle{}
-		,m_rtvDescriptorSize(0)
-		,m_currentBackBufferIndex(0)
-		,m_fenceValue(0)
-		,m_fenceEvent(INVALID_HANDLE_VALUE)
+	const wchar_t* Renderer::m_hitGroupName = L"MyHitGroup";
+	const wchar_t* Renderer::m_raygenShaderName = L"MyRaygenShader";
+	const wchar_t* Renderer::m_closestHitShaderName = L"MyClosestHitShader";
+	const wchar_t* Renderer::m_missShaderName = L"MyMissShader";
+
+	Renderer::Renderer(UINT width , UINT height , std::wstring name)
+		: m_window(nullptr)
+		, m_viewport()
+		, m_title(name)
+		, m_device(make_shared<Device>())
+		, m_commandQueue(make_shared<CommandQueue>())
+		, m_depthStencilBuffer(make_shared<DepthStencilBuffer>(DXGI_FORMAT_UNKNOWN))
+		, m_swapChain(make_shared<SwapChain>(DXGI_FORMAT_R8G8B8A8_UNORM))
+		, m_raytracingGlobalRootSignature(make_shared<GlobalRootSignature>())
+		, m_raytracingLocalRootSignature(make_shared<LocalRootSignature>())
+		, m_dxrStateObject(nullptr)
+		, m_descriptorHeap(make_shared<DescriptorHeap>())
+		, m_sceneCB()
+		, m_cubeCB()
+		, m_cube(make_shared<Cube>())
+		, m_accelerationStructure(nullptr)
+		, m_bottomLevelAccelerationStructure(nullptr)
+		, m_topLevelAccelerationStructure(nullptr)
+		, m_raytracingOutput(nullptr)
+		, m_raytracingOutputResourceUAVGpuDescriptor()
+		, m_raytracingOutputResourceUAVDescriptorHeapIndex(0)
+		, m_missShaderTable(nullptr)
+		, m_hitGroupShaderTable(nullptr)
+		, m_rayGenShaderTable(nullptr)
 	{
+		m_viewport.left = m_viewport.top = 0;
+		m_viewport.right = width;
+		m_viewport.bottom = height;
 	}
 
-	HRESULT Renderer::Initialize(_In_ HWND hWnd)
+	HRESULT Renderer::Initialize(HWND hWnd)
 	{
 		HRESULT hr = S_OK;
 
-		RECT rc;
-		GetClientRect(hWnd, &rc);
-		UINT uWidth = static_cast<UINT>(rc.right - rc.left);
-		UINT uHeight = static_cast<UINT>(rc.bottom - rc.top);
-
-		// set viewport
-		m_viewport.Width = static_cast<float>(uWidth);
-		m_viewport.Height = static_cast<float>(uHeight);
-
-		// set rect
-		m_scissorRect = CD3DX12_RECT(0, 0, uWidth, uHeight);
-
-		// 1. create the device
-		// create dxgiFactory
-		ComPtr<IDXGIFactory> dxgiFactory(nullptr);
-		hr = CreateDXGIFactory(IID_PPV_ARGS(dxgiFactory.GetAddressOf()));
+		// init device Resources
+		hr = CreateDeviceResources();
 		if (FAILED(hr))
 		{
-			return hr;
+			MessageBox(
+				nullptr,
+				L"Renderer | Call to CreateDeviceResources failed!",
+				L"D3D12_DXR",
+				NULL
+			);
+			return E_FAIL;
 		}
+		
+		// init scene
 
-		// createDevice
-		hr = D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(m_device.GetAddressOf()));
+		// ray tracing device resources
+		hr = CreateRaytracingDeviceResources();
 		if (FAILED(hr))
 		{
-			return hr;
+			MessageBox(
+				nullptr,
+				L"Renderer | Call to CreateRaytracingDeviceResources failed!",
+				L"D3D12_DXR",
+				NULL
+			);
+			return E_FAIL;
 		}
 
-		// 2. Create a direct command queue
-		D3D12_COMMAND_QUEUE_DESC queueDesc = {
-			.Type = D3D12_COMMAND_LIST_TYPE_DIRECT,
-			.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE
-		};
-		hr = m_device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(m_commandQueue.GetAddressOf()));
-		if (FAILED(hr))
-		{
-			return hr;
-		}
-
-		// 3. create the swap chain
-		DXGI_SWAP_CHAIN_DESC swapChainDesc = {
-			.BufferDesc = {
-				.Width = uWidth,
-				.Height = uHeight,
-				.RefreshRate = {
-					.Numerator = 60,
-					.Denominator = 1
-				},
-				.Format = DXGI_FORMAT_R8G8B8A8_UNORM,
-				.ScanlineOrdering = DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED,
-				.Scaling = DXGI_MODE_SCALING_UNSPECIFIED
-			},
-			.SampleDesc = {
-				.Count = 1,
-				.Quality = 0
-			},
-			.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT,
-			.BufferCount = g_numFrameBuffers,
-			.OutputWindow = hWnd,
-			.Windowed = true,
-			.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD,
-			.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH
-		};
-
-		ComPtr<IDXGISwapChain> swapChain(nullptr);
-		hr = dxgiFactory->CreateSwapChain(m_commandQueue.Get(), &swapChainDesc, swapChain.GetAddressOf());
-		if (FAILED(hr))
-		{
-			return hr;
-		}
-
-		hr = swapChain.As(&m_swapChain);
-		if (FAILED(hr))
-		{
-			return hr;
-		}
-		m_currentBackBufferIndex = m_swapChain->GetCurrentBackBufferIndex();
-
-		// 4. Create the Descriptor Heap
-		// rtv descriptor heap
-		D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc = {
-			.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV,
-			.NumDescriptors = g_numFrameBuffers,
-			.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE,
-			.NodeMask = 0
-		};
-		hr = m_device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(m_rtvDescriptorHeap.GetAddressOf()));
-		if (FAILED(hr))
-		{
-			return hr;
-		}
-		// get the size of a descriptor in this heap
-		m_rtvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-
-		// 5. Create frame resources
-		// get a handle to the first descriptor in the descriptor heap
-		CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
-		// create a RTV for each buffer
-		for (UINT i = 0; i < g_numFrameBuffers; ++i)
-		{
-			hr = m_swapChain->GetBuffer(i, IID_PPV_ARGS(m_backBuffers[i].GetAddressOf()));
-			if (FAILED(hr))
-			{
-				return hr;
-			}
-			m_device->CreateRenderTargetView(m_backBuffers[i].Get(), nullptr, rtvHandle);
-			rtvHandle.Offset(1, m_rtvDescriptorSize);
-		}
-
-		// 6. Create the Command Allocator
-		hr = m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(m_commandAllocator.GetAddressOf()));
-		if (FAILED(hr))
-		{
-			return hr;
-		}
-
-		// 7. Create an empty root signature
-		CD3DX12_ROOT_SIGNATURE_DESC rootSignatureDesc;
-		rootSignatureDesc.Init(0, nullptr, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
-		ComPtr<ID3DBlob> signature;
-		ComPtr<ID3DBlob> error;
-		hr = D3D12SerializeRootSignature(&rootSignatureDesc, D3D_ROOT_SIGNATURE_VERSION_1, signature.GetAddressOf(), error.GetAddressOf());
-		if (FAILED(hr))
-		{
-			return hr;
-		}
-		hr = m_device->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(m_rootSignature.GetAddressOf()));
-		if (FAILED(hr))
-		{
-			return hr;
-		}
-
-		// 8. Create the pipeline state, which includes compiling and loading shaders
-		// d3dcompilefromfile
-		ComPtr<ID3DBlob> vertexShader;
-		ComPtr<ID3DBlob> pixelShader;
-		hr = D3DCompileFromFile(L"../Library/Shaders/VertexShader.hlsl", nullptr, nullptr, "VSMain", "vs_5_0", 0, 0, vertexShader.GetAddressOf(), nullptr);
-		if (FAILED(hr))
-		{
-			return hr;
-		}
-		hr = D3DCompileFromFile(L"../Library/Shaders/PixelShader.hlsl", nullptr, nullptr, "PSMain", "ps_5_0", 0, 0, pixelShader.GetAddressOf(), nullptr);
-		if (FAILED(hr))
-		{
-			return hr;
-		}
-
-		// define the vertex input layout
-		D3D12_INPUT_ELEMENT_DESC inputElementDescs[] =
-		{
-			{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-			{ "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
-		};
-
-		// describe and create the graphics pipeline state object
-		D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {
-			.pRootSignature = m_rootSignature.Get(),
-			.VS = CD3DX12_SHADER_BYTECODE(vertexShader.Get()),
-			.PS = CD3DX12_SHADER_BYTECODE(pixelShader.Get()),
-			.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT),
-			.SampleMask = UINT_MAX,
-			.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT),
-			.DepthStencilState = {
-				.DepthEnable = FALSE,
-				.StencilEnable = FALSE
-			},
-			.InputLayout = {
-				inputElementDescs, _countof(inputElementDescs)
-			},
-			.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE,
-			.NumRenderTargets = 1,
-			.RTVFormats = {DXGI_FORMAT_R8G8B8A8_UNORM, },
-			.SampleDesc = {
-				.Count = 1,
-			},
-		};
-		hr = m_device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(m_pipelineState.GetAddressOf()));
-		if (FAILED(hr))
-		{
-			return hr;
-		}
-
-		// 9. Create the Command list
-		hr = m_device->CreateCommandList(
-			0,
-			D3D12_COMMAND_LIST_TYPE_DIRECT,
-			m_commandAllocator.Get(),
-			m_pipelineState.Get(),
-			IID_PPV_ARGS(m_commandList.GetAddressOf())
-		);
-		if (FAILED(hr))
-		{
-			return hr;
-		}
-		// close command list
-		m_commandList->Close();
-
-		// 10. create the vertex buffer
-		float aspect_ratio = static_cast<float>(uWidth) / static_cast<float>(uHeight);
-		Vertex triangleVertices[] = {
-				{ { 0.0f, 0.25f * aspect_ratio, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
-				{ { 0.25f, -0.25f * aspect_ratio, 0.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
-				{ { -0.25f, -0.25f * aspect_ratio, 0.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } },
-		};
-
-		// create a resource heap
-		auto heapProperties = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
-		auto resourceDesc = CD3DX12_RESOURCE_DESC::Buffer(sizeof(triangleVertices));
-		hr = m_device->CreateCommittedResource(
-			&heapProperties,
-			D3D12_HEAP_FLAG_NONE,
-			&resourceDesc,
-			D3D12_RESOURCE_STATE_GENERIC_READ,
-			nullptr,
-			IID_PPV_ARGS(m_vertexBuffer.GetAddressOf())
-		);
-		if (FAILED(hr))
-		{
-			return hr;
-		}
-
-		// copy the triangle data to the vertex buffer
-		UINT8* pVertexDataBegin;
-		CD3DX12_RANGE readRange(0, 0);
-		hr = m_vertexBuffer->Map(0, &readRange, reinterpret_cast<void**>(&pVertexDataBegin));
-		if (FAILED(hr))
-		{
-			return hr;
-		}
-		memcpy(pVertexDataBegin, triangleVertices, sizeof(triangleVertices));
-		m_vertexBuffer->Unmap(0, nullptr);
-
-		// initialize the vertex buffer view
-		m_vertexBufferView.BufferLocation = m_vertexBuffer->GetGPUVirtualAddress();
-		m_vertexBufferView.StrideInBytes = sizeof(Vertex);
-		m_vertexBufferView.SizeInBytes = sizeof(triangleVertices);
-
-		// 11. create synchronization object
-		// create the fence
-		hr = m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(m_fence.GetAddressOf()));
-		if (FAILED(hr))
-		{
-			return hr;
-		}
-		m_fenceEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
-
-		// wait for the command list to execute
-		WaitForPreviousFrame();
+		return S_OK;
 	}
 
-	void Renderer::WaitForPreviousFrame()
+	HRESULT Renderer::CreateDeviceResources()
 	{
-		// Signal and increment the fence value.
-		const UINT64 fence = m_fenceValue;
-		m_commandQueue->Signal(m_fence.Get(), fence);
-		m_fenceValue++;
+		HRESULT hr = S_OK;
 
-		// Wait until the previous frame is finished.
-		if (m_fence->GetCompletedValue() < fence)
+		// initialize d3dDevice5
+		hr = m_device->Init();
+		if (FAILED(hr))
 		{
-			m_fence->SetEventOnCompletion(fence, m_fenceEvent);
-			WaitForSingleObject(m_fenceEvent, INFINITE);
+			return hr;
 		}
-
-		m_currentBackBufferIndex = m_swapChain->GetCurrentBackBufferIndex();
+		// initialize command queue
+		hr = m_commandQueue->Init(m_device->GetD3DDevice(), m_swapChain);
+		if (FAILED(hr))
+		{
+			return hr;
+		}
+		// initialize Swap Chain
+		hr = m_swapChain->Init(m_window, m_viewport, m_device->GetDXGIFactory(), m_commandQueue->GetCommandQueue(), m_device->GetD3DDevice());
+		if (FAILED(hr))
+		{
+			return hr;
+		}
+		// reset back buffer index
+		m_commandQueue->UpdateBackBufferIndex();
+		// initialize depth/Stencil buffer
+		hr = m_depthStencilBuffer->Init(m_viewport, m_device->GetD3DDevice());
+		if (FAILED(hr))
+		{
+			return hr;
+		}
+		return S_OK;
 	}
 
+	/*M+M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M
+	  Method:   Renderer::CreateRaytracingDeviceResources
+	  Summary:  Create resources that depend on the device
+				initialize raytracing pipeline
+	  Modifies: [].
+	M---M---M---M---M---M---M---M---M---M---M---M---M---M---M---M---M-M*/
+	HRESULT Renderer::CreateRaytracingDeviceResources()
+	{
+		HRESULT hr = S_OK;
+
+		// create root signatures for the shaders
+		hr = m_raytracingGlobalRootSignature->Init(m_device->GetD3DDevice());
+		if (FAILED(hr))
+		{
+			return hr;
+		}
+		hr = m_raytracingLocalRootSignature->Init(m_device->GetD3DDevice());
+		if (FAILED(hr))
+		{
+			return hr;
+		}
+
+		// create a raytracing pipeline state object 
+		// which defines the binding of shaders, state and resources to be used during raytracing.
+		hr = CreateRaytracingPipelineStateObject();
+		if (FAILED(hr))
+		{
+			return hr;
+		}
+
+		// create a heap for descriptors
+		hr = m_descriptorHeap->Init(m_device->GetD3DDevice());
+		if (FAILED(hr))
+		{
+			return hr;
+		}
+
+		// build geometry to be used
+		hr = m_cube->Init(m_device->GetD3DDevice(), m_descriptorHeap);
+		if (FAILED(hr))
+		{
+			return hr;
+		}
+
+		// Build raytracing acceleration structures from the generated geometry
+		BuildAccelerationStructres();
+
+		// create constant buffers for the geometry and the scene
+
+
+		// build shader tables, which define shaders and their local root arguments
+		BuildShaderTables();
+
+		// create an output 2D texture to store the raytracing result to
+		CreateRaytracingOutputResource();
+	}
+
+	/*M+M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M
+	  Method:   Renderer::CreateRaytracingPipelineStateObject
+	  Summary:  Create a raytracing pipeline state object (RTPSO)
+				An RTPSO represents a full set of shaders reachable by a 
+				DispatchRays() call with all configuration options resolved, 
+				such as local signatures and other state.
+	  Modifies: [].
+	M---M---M---M---M---M---M---M---M---M---M---M---M---M---M---M---M-M*/
+	HRESULT Renderer::CreateRaytracingPipelineStateObject()
+	{
+		// Create 7 subobjects that combine into a RTPSO:
+		// Subobjects need to be associated with DXIL exports (i.e. shaders) either by way of default or explicit associations.
+		// Default association applies to every exported shader entrypoint that doesn't have any of the same type of subobject associated with it.
+		// This simple sample utilizes default shader association except for local root signature subobject
+		// which has an explicit association specified purely for demonstration purposes.
+		// 1 - DXIL library
+		// 1 - Triangle hit group
+		// 1 - Shader config
+		// 2 - Local root signature and association
+		// 1 - Global root signature
+		// 1 - Pipeline config
+		CD3DX12_STATE_OBJECT_DESC raytracingPipeline{ D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE };
+
+		// DXIL library
+		// shader와 state object의 진입점을 포함, 셰이더는 subobject가 아니기 때문에 DXIL library subobjects를 통해 전달해야 함
+		auto lib = raytracingPipeline.CreateSubobject<CD3DX12_DXIL_LIBRARY_SUBOBJECT>();
+		// compile shader
+		D3D12_SHADER_BYTECODE libdxil = CD3DX12_SHADER_BYTECODE((void*)g_pRaytracing, ARRAYSIZE(g_pRaytracing));
+		lib->SetDXILLibrary(&libdxil);
+		lib->DefineExport(m_raygenShaderName);
+		lib->DefineExport(m_closestHitShaderName);
+		lib->DefineExport(m_missShaderName);
+
+		// Triangle hit group
+		// hit group은 closest hit, any hit, intersection shaders를 지정함. ray가 geometry의 triangle/AABB와 교차하는 경우 shader가 실행됨
+		auto hitGroup = raytracingPipeline.CreateSubobject<CD3DX12_HIT_GROUP_SUBOBJECT>();
+		hitGroup->SetClosestHitShaderImport(m_closestHitShaderName);
+		hitGroup->SetHitGroupExport(m_hitGroupName);
+		hitGroup->SetHitGroupType(D3D12_HIT_GROUP_TYPE_TRIANGLES);
+
+		// Shader config
+		// ray payload와 attribute structure의 최대 크기를 정의함
+		auto shaderConfig = raytracingPipeline.CreateSubobject<CD3DX12_RAYTRACING_SHADER_CONFIG_SUBOBJECT>();
+		UINT payloadSize = sizeof(XMFLOAT4);    // float4 pixelColor
+		UINT attributeSize = sizeof(XMFLOAT2);  // float2 barycentrics
+		shaderConfig->Config(payloadSize, attributeSize);
+
+		// Local root signature and shader association
+		// hit group과 miss shader는 local root signature를 사용하지 않는다
+		// Ray generation shader에서 local root signature가 사용됨
+		auto localRootSignature = raytracingPipeline.CreateSubobject<CD3DX12_LOCAL_ROOT_SIGNATURE_SUBOBJECT>();
+		localRootSignature->SetRootSignature(m_raytracingLocalRootSignature->GetRootSignature().Get());
+		// shader association
+		auto rootSignatureAssociation = raytracingPipeline.CreateSubobject<CD3DX12_SUBOBJECT_TO_EXPORTS_ASSOCIATION_SUBOBJECT>();
+		rootSignatureAssociation->SetSubobjectToAssociate(*localRootSignature);
+		rootSignatureAssociation->AddExport(m_hitGroupName);
+
+		// global root signature
+		// DispatchRays()를 호출하는 동안 모든 raytracing shader간 공유됨
+		auto globalRootSignature = raytracingPipeline.CreateSubobject<CD3DX12_GLOBAL_ROOT_SIGNATURE_SUBOBJECT>();
+		globalRootSignature->SetRootSignature(m_raytracingGlobalRootSignature->GetRootSignature().Get());
+
+		// pipeline config
+		// TraceRay() recursion depth의 max를 정의함
+		auto pipelineConfig = raytracingPipeline.CreateSubobject<CD3DX12_RAYTRACING_PIPELINE_CONFIG_SUBOBJECT>();
+		UINT maxRecursionDepth = 1;
+		pipelineConfig->Config(maxRecursionDepth);
+
+		// Create the state object
+		HRESULT hr = m_device->GetD3DDevice()->CreateStateObject(raytracingPipeline, IID_PPV_ARGS(&m_dxrStateObject));
+		if (FAILED(hr))
+		{
+			return hr;
+		}
+
+		return S_OK;
+	}
+
+	/*M+M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M
+	  Method:   Renderer::BuildAccelerationStructres
+	  Summary:  Build acceleration structures needed for raytracing
+	  Modifies: [].
+	M---M---M---M---M---M---M---M---M---M---M---M---M---M---M---M---M-M*/
+	HRESULT Renderer::BuildAccelerationStructres()
+	{
+		// TODO
+	}
+
+	/*M+M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M
+	  Method:   Renderer::BuildShaderTables
+	  Summary:  This encapsulates all shader records 
+				shaders and the arguments for their local root signatures.
+	M---M---M---M---M---M---M---M---M---M---M---M---M---M---M---M---M-M*/
+	HRESULT Renderer::BuildShaderTables()
+	{
+		// TODO
+	}
+
+	/*M+M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M
+	  Method:   Renderer::CreateRaytracingOutputResource
+	  Summary:  Create 2D output texture for raytracing
+	M---M---M---M---M---M---M---M---M---M---M---M---M---M---M---M---M-M*/
+	void Renderer::CreateRaytracingOutputResource()
+	{
+		// TODO
+	}
+
+	/*M+M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M
+	  Method:   Renderer::Update
+      Summary:  Update the scene
+	M---M---M---M---M---M---M---M---M---M---M---M---M---M---M---M---M-M*/
 	void Renderer::Update()
 	{
 
 	}
 
+	/*M+M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M+++M
+	  Method:   Renderer::Render
+	  Summary:  Render the scene
+	M---M---M---M---M---M---M---M---M---M---M---M---M---M---M---M---M-M*/
 	void Renderer::Render()
 	{
-		m_commandAllocator->Reset();
-		m_commandList->Reset(m_commandAllocator.Get(), m_pipelineState.Get());
+		m_commandQueue->Prepare();
+		DoRaytracing();
+		CopyRaytracingOutputToBackbuffer();
+		m_commandQueue->Present(D3D12_RESOURCE_STATE_PRESENT);
+	}
 
-		// Clear the render target
-		// set necessary state
-		m_commandList->RSSetViewports(1, &m_viewport);
-		m_commandList->RSSetScissorRects(1, &m_scissorRect);
-		m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
+	void Renderer::DoRaytracing()
+	{
+		// TODO
+	}
 
-		// indicate that the back buffer will be used as a render target
-		CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
-			m_backBuffers[m_currentBackBufferIndex].Get(),
-			D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
-		m_commandList->ResourceBarrier(1, &barrier);
+	void Renderer::CopyRaytracingOutputToBackbuffer()
+	{
+		// TODO
+	}
 
-		CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(), m_currentBackBufferIndex, m_rtvDescriptorSize);
-		m_commandList->OMSetRenderTargets(1, &rtvHandle, FALSE, nullptr);
+	HRESULT Renderer::AllocateUploadBuffer(void* pData, UINT64 datasize, ComPtr<ID3D12Resource> pResource, LPCWSTR resourceName = nullptr)
+	{
+		HRESULT hr = S_OK;
 
-		// record commands
-		m_commandList->ClearRenderTargetView(rtvHandle, Colors::MidnightBlue, 0, nullptr);
-		m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-		m_commandList->IASetVertexBuffers(0, 1, &m_vertexBufferView);
-		m_commandList->DrawInstanced(3, 1, 0, 0);
+		D3D12_HEAP_PROPERTIES heapProperty = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
+		D3D12_RESOURCE_DESC bufferDesc = CD3DX12_RESOURCE_DESC::Buffer(datasize);
 
-		// indicate that the back buffer will now be used to present
-		CD3DX12_RESOURCE_BARRIER barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(
-			m_backBuffers[m_currentBackBufferIndex].Get(),
-			D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
-		m_commandList->ResourceBarrier(1, &barrier2);
-		m_commandList->Close();
+		auto device = m_device->GetD3DDevice().Get();
 
-		// execute the command list
-		ID3D12CommandList* commandListArr[] = { m_commandList.Get() };
-		m_commandQueue->ExecuteCommandLists(_countof(commandListArr), commandListArr);
-		
-		// present the frame
-		m_swapChain->Present(1, 0);
-		
-		WaitForPreviousFrame();
+		hr = device->CreateCommittedResource(
+			&heapProperty,
+			D3D12_HEAP_FLAG_NONE,
+			&bufferDesc,
+			D3D12_RESOURCE_STATE_GENERIC_READ,
+			nullptr,
+			IID_PPV_ARGS(&pResource)
+		);
+		if (FAILED(hr))
+		{
+			return hr;
+		}
+
+		hr = pResource->SetName(resourceName);
+		if (FAILED(hr))
+		{
+			return hr;
+		}
+
+		ComPtr<void> pMappedData;
+		pResource->Map(0, nullptr, &pMappedData);
+		memcpy(pMappedData.GetAddressOf(), pData, datasize);
+		pResource->Unmap(0, nullptr);
+
+		return S_OK;
+	}
+
+
+	HRESULT Renderer::AllocateUAVBuffer(UINT64 bufferSize, ComPtr<ID3D12Resource> pResource, D3D12_RESOURCE_STATES initialResourceState = D3D12_RESOURCE_STATE_COMMON, LPCWSTR resourceName = nullptr)
+	{
+		HRESULT hr = S_OK;
+
+		D3D12_HEAP_PROPERTIES heapProperty = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
+		D3D12_RESOURCE_DESC bufferDesc = CD3DX12_RESOURCE_DESC::Buffer(bufferSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+
+		auto device = m_device->GetD3DDevice().Get();
+
+		hr = device->CreateCommittedResource(
+			&heapProperty,
+			D3D12_HEAP_FLAG_NONE,
+			&bufferDesc,
+			initialResourceState,
+			nullptr,
+			IID_PPV_ARGS(&pResource)
+		);
+		if (FAILED(hr))
+		{
+			return hr;
+		}
+
+		hr = pResource->SetName(resourceName);
+		if (FAILED(hr))
+		{
+			return hr;
+		}
+
+		return S_OK;
 	}
 }

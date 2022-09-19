@@ -4,7 +4,7 @@ namespace library
 {
 	Game::Game(_In_ PCWSTR pszGameName)
 		: m_pszGameName(pszGameName)
-		, m_Window(std::make_unique<Window>())
+		, m_Window(std::make_unique<MainWindow>())
 		, m_renderer(std::make_unique<Renderer>())
 	{
 	}
@@ -50,8 +50,6 @@ namespace library
 			m_renderer->Update();
 			m_renderer->Render();
 		}
-
-
 
 		return static_cast<INT>(msg.wParam);
 	}
